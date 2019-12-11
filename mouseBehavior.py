@@ -13,7 +13,7 @@ from matplotlib import pyplot as plt
 from visual_behavior.translator.foraging2 import data_to_change_detection_core
 from visual_behavior.translator.core import create_extended_dataframe
 import pickle
-
+import scipy
 
 class mouseBehaviorData():
     
@@ -116,15 +116,42 @@ class mouseBehaviorData():
             trials = pd.DataFrame.from_dict({'stage':[None]})
         return trials
     
+    def calculate_dprime_engaged(self, trials, reward_rate_thresh = 1):
+        
+        engagedTrials = trials['reward_rate'] >= reward_rate_thresh
+        engagedDF = trials.loc[engagedTrials]
+        
+        hits = np.sum(engagedDF['response_type'] == 'HIT')
+        misses = np.sum(engagedDF['response_type'] == 'MISS')
+        fas = np.sum(engagedDF['response_type'] == 'FA')
+        crs = np.sum(engagedDF['response_type'] == 'CR')
+        
+        engagedTrialHitRate = hits/float(hits+misses)
+        engagedTrialFARate = fas/float(fas+crs)
+        
+        z = [scipy.stats.norm.ppf(r) for r in (engagedTrialHitRate,engagedTrialFARate)]
+        
+        return z[0] - z[1]
     
-    def buildBehaviorDataframe(self, startDate=None, endDate=None):
+    def get_rig_name(self, row):
+        equipID = row['equipment_id']
+        if equipID is None or np.isnan(equipID):
+            rig_name = 'unknown'
+        
+        else:
+            rig_name = pd.read_sql('select * from equipment where id = {}'.format(row['equipment_id']), self.con)['name']
+        
+        return rig_name
+    
+    def buildBehaviorDataframe(self, startDate=None, endDate=None, all_sessions=False, overwrite_behdf=False):
         if self.behavior_sessions is None:
             self.getBehaviorSessionsForMouse()
         
-    
+        
+        
         #add common rig name
         self.behavior_sessions['rig'] = self.behavior_sessions.apply(lambda row: 
-                pd.read_sql('select * from equipment where id = {}'.format(row['equipment_id']), self.con)['name'], axis=1)
+                self.get_rig_name(row), axis=1)
     
         #add pkl file paths
         self.behavior_sessions['pklfile'] = self.behavior_sessions.apply(lambda row: 
@@ -133,15 +160,24 @@ class mouseBehaviorData():
     
         #pick out dates to analyze: it takes a bit of time to pull this data from the network, so limiting your
         #dates is helpful when possible. Right now I'm pulling from 'daysBeforeHandoff' to end
-        handoff = self.behavior_sessions[self.behavior_sessions['rig'].str.contains('NP')].iloc[-1]['created_at']
-        if startDate is None:
-            startDate = handoff - pd.DateOffset(days=self.daysBeforeHandoff)
+        if all_sessions:
+            startDate = '1900'
+            endDate = '2100'
+        else:
+            handoff = self.behavior_sessions[self.behavior_sessions['rig'].str.contains('NP')].iloc[-1]['created_at']
+            if startDate is None:
+                startDate = handoff - pd.DateOffset(days=self.daysBeforeHandoff)
+            
+            if endDate is None:
+                endDate = self.behavior_sessions[self.behavior_sessions['rig'].str.contains('NP')].iloc[0]['created_at']
         
-        if endDate is None:
-            endDate = self.behavior_sessions[self.behavior_sessions['rig'].str.contains('NP')].iloc[0]['created_at']
+        if not hasattr(self, 'beh_df') or overwrite_behdf:
+            toAnalyze = self.behavior_sessions[(self.behavior_sessions['created_at']>=startDate)&(self.behavior_sessions['created_at']<endDate)]
+            toAnalyze['trials'] = toAnalyze.apply(lambda row: self.getTrialsDF(row['pklfile']), axis=1) #this trials object has all the info you need about the session
         
-        toAnalyze = self.behavior_sessions[(self.behavior_sessions['created_at']>=startDate)&(self.behavior_sessions['created_at']<endDate)]
-        toAnalyze['trials'] = toAnalyze.apply(lambda row: self.getTrialsDF(row['pklfile']), axis=1) #this trials object has all the info you need about the session
+        else:
+            toAnalyze = self.beh_df
+        
         toAnalyze['stage'] = toAnalyze.apply(lambda row: row['trials']['stage'][0], axis=1) #add the training stage to the dataframe
         toAnalyze = toAnalyze.loc[toAnalyze['stage'].notnull()] #filter out the passive pickle files that get added during recordings
         toAnalyze['session_datetime'] = toAnalyze.apply(lambda row: row['trials']['startdatetime'][0], axis=1)
@@ -151,6 +187,7 @@ class mouseBehaviorData():
         toAnalyze['session_datetime_utc'] = toAnalyze.apply(lambda row: pd.to_datetime(row['trials']['startdatetime'][0], utc=True), axis=1)
         toAnalyze['cumulative_rewards'] = toAnalyze.apply(lambda row: row['trials']['cumulative_reward_number'].max(), axis=1)
         toAnalyze['timeFromLastSession'] = toAnalyze['session_datetime_utc'].diff(periods=-1).astype('timedelta64[s]')/3600
+        toAnalyze['engaged_dprime'] = toAnalyze.apply(lambda row: self.calculate_dprime_engaged(row['trials']), axis=1) 
             
         self.beh_df = toAnalyze
     
@@ -199,19 +236,12 @@ class mouseBehaviorData():
         
         fig, ax = plt.subplots()
         ax.plot(self.beh_df['timeFromLastSession'], self.beh_df['cumulative_rewards'], 'o')
-        ax.set_xlim([18,28])
+#        ax.set_xlim([18,28])
         ax.set_xlabel('Hours since last session')
         ax.set_ylabel('Number of rewards earned')
         
-#        
-#        saveDir = r"C:\Users\svc_ccg\Desktop\Data\NP mouse behavior dfs"
-#        self.beh_df.to_pickle(os.path.join(saveDir, str(self.mouse_id)+'_behavior.pkl'))
-#        
-#    
-#    
 
-
-
+    
 
 
 
