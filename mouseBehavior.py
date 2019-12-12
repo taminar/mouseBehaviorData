@@ -134,20 +134,27 @@ class mouseBehaviorData():
         return z[0] - z[1]
     
     def get_rig_name(self, row):
-        equipID = row['equipment_id']
-        if equipID is None or np.isnan(equipID):
-            rig_name = 'unknown'
+        rig_name = None
         
+        #check if we can get rig from trials df
+        if 'trials' in row:
+            if 'rig_id' in row['trials']:
+                rig_name = row['trials']['rig_id'][0]
+        
+        #otherwise get it from LIMs equip id
         else:
-            rig_name = pd.read_sql('select * from equipment where id = {}'.format(row['equipment_id']), self.con)['name']
+            equipID = row['equipment_id']
+            if not equipID is None and not np.isnan(equipID):
+                rig_name = pd.read_sql('select * from equipment where id = {}'.format(row['equipment_id']), self.con)['name']
+        
+        if rig_name is None:
+            rig_name = 'unknown'
         
         return rig_name
     
     def buildBehaviorDataframe(self, startDate=None, endDate=None, all_sessions=False, overwrite_behdf=False):
         if self.behavior_sessions is None:
             self.getBehaviorSessionsForMouse()
-        
-        
         
         #add common rig name
         self.behavior_sessions['rig'] = self.behavior_sessions.apply(lambda row: 
@@ -160,23 +167,24 @@ class mouseBehaviorData():
     
         #pick out dates to analyze: it takes a bit of time to pull this data from the network, so limiting your
         #dates is helpful when possible. Right now I'm pulling from 'daysBeforeHandoff' to end
-        if all_sessions:
-            startDate = '1900'
-            endDate = '2100'
-        else:
-            handoff = self.behavior_sessions[self.behavior_sessions['rig'].str.contains('NP')].iloc[-1]['created_at']
-            if startDate is None:
-                startDate = handoff - pd.DateOffset(days=self.daysBeforeHandoff)
-            
-            if endDate is None:
-                endDate = self.behavior_sessions[self.behavior_sessions['rig'].str.contains('NP')].iloc[0]['created_at']
-        
         if not hasattr(self, 'beh_df') or overwrite_behdf:
-            toAnalyze = self.behavior_sessions[(self.behavior_sessions['created_at']>=startDate)&(self.behavior_sessions['created_at']<endDate)]
+            if all_sessions:
+                startDate = '1900'
+                endDate = '2100'
+            else:
+                handoff = self.behavior_sessions[self.behavior_sessions['rig'].str.contains('NP')].iloc[-1]['created_at']
+                if startDate is None:
+                    startDate = handoff - pd.DateOffset(days=self.daysBeforeHandoff)
+                
+                if endDate is None:
+                    endDate = self.behavior_sessions[self.behavior_sessions['rig'].str.contains('NP')].iloc[0]['created_at']
+            
+            
+            toAnalyze = self.behavior_sessions[(self.behavior_sessions['created_at']>=startDate)&(self.behavior_sessions['created_at']<endDate)].sort_values('session_datetime_utc', ascending=False)
             toAnalyze['trials'] = toAnalyze.apply(lambda row: self.getTrialsDF(row['pklfile']), axis=1) #this trials object has all the info you need about the session
         
         else:
-            toAnalyze = self.beh_df
+            toAnalyze = self.beh_df.sort_values('session_datetime_utc', ascending=False)
         
         toAnalyze['stage'] = toAnalyze.apply(lambda row: row['trials']['stage'][0], axis=1) #add the training stage to the dataframe
         toAnalyze = toAnalyze.loc[toAnalyze['stage'].notnull()] #filter out the passive pickle files that get added during recordings
@@ -185,10 +193,14 @@ class mouseBehaviorData():
         #Add some useful columns to dataframe
         toAnalyze['session_datetime_local'] = toAnalyze.apply(lambda row: pd.to_datetime(row['trials']['startdatetime'][0]), axis=1)
         toAnalyze['session_datetime_utc'] = toAnalyze.apply(lambda row: pd.to_datetime(row['trials']['startdatetime'][0], utc=True), axis=1)
-        toAnalyze['cumulative_rewards'] = toAnalyze.apply(lambda row: row['trials']['cumulative_reward_number'].max(), axis=1)
+        toAnalyze['cumulative_rewards'] = toAnalyze.apply(lambda row: row['trials']['cumulative_reward_number'].max() - row['trials']['auto_rewarded'].sum(), axis=1)
         toAnalyze['timeFromLastSession'] = toAnalyze['session_datetime_utc'].diff(periods=-1).astype('timedelta64[s]')/3600
         toAnalyze['engaged_dprime'] = toAnalyze.apply(lambda row: self.calculate_dprime_engaged(row['trials']), axis=1) 
-            
+        toAnalyze['session_day_of_week'] = toAnalyze.apply(lambda row: row['session_datetime_local'].dayofweek, axis=1)
+        
+        #fill in rig names missing from lims
+        toAnalyze['rig'] = toAnalyze.apply(lambda row: self.get_rig_name(row), axis=1)
+        
         self.beh_df = toAnalyze
     
     def plotResponseTypeProportions(self):
