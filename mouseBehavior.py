@@ -180,11 +180,11 @@ class mouseBehaviorData():
                     endDate = self.behavior_sessions[self.behavior_sessions['rig'].str.contains('NP')].iloc[0]['created_at']
             
             
-            toAnalyze = self.behavior_sessions[(self.behavior_sessions['created_at']>=startDate)&(self.behavior_sessions['created_at']<endDate)].sort_values('session_datetime_utc', ascending=False)
+            toAnalyze = self.behavior_sessions[(self.behavior_sessions['created_at']>=startDate)&(self.behavior_sessions['created_at']<endDate)]
             toAnalyze['trials'] = toAnalyze.apply(lambda row: self.getTrialsDF(row['pklfile']), axis=1) #this trials object has all the info you need about the session
         
         else:
-            toAnalyze = self.beh_df.sort_values('session_datetime_utc', ascending=False)
+            toAnalyze = self.beh_df
         
         toAnalyze['stage'] = toAnalyze.apply(lambda row: row['trials']['stage'][0], axis=1) #add the training stage to the dataframe
         toAnalyze = toAnalyze.loc[toAnalyze['stage'].notnull()] #filter out the passive pickle files that get added during recordings
@@ -193,6 +193,7 @@ class mouseBehaviorData():
         #Add some useful columns to dataframe
         toAnalyze['session_datetime_local'] = toAnalyze.apply(lambda row: pd.to_datetime(row['trials']['startdatetime'][0]), axis=1)
         toAnalyze['session_datetime_utc'] = toAnalyze.apply(lambda row: pd.to_datetime(row['trials']['startdatetime'][0], utc=True), axis=1)
+        toAnalyze = toAnalyze.sort_values('session_datetime_utc', ascending=False) #sort dataframe by date
         toAnalyze['cumulative_rewards'] = toAnalyze.apply(lambda row: row['trials']['cumulative_reward_number'].max() - row['trials']['auto_rewarded'].sum(), axis=1)
         toAnalyze['timeFromLastSession'] = toAnalyze['session_datetime_utc'].diff(periods=-1).astype('timedelta64[s]')/3600
         toAnalyze['engaged_dprime'] = toAnalyze.apply(lambda row: self.calculate_dprime_engaged(row['trials']), axis=1) 
