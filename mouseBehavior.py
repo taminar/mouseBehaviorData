@@ -159,7 +159,7 @@ class mouseBehaviorData():
         q = ltq.get_labtracks_animals_entry(self.mouse_id)
         params_to_extract = ['Maternal_Index', 'Paternal_Index', 'wean_date', 'birth_date']
         for p in params_to_extract:
-            self[p] = q[p]
+            self.__dict__[p] = q[p]
             
         #get baseline weight
         self.baseline_weight = pd.read_sql('select * from donors where external_donor_name = \'%s\'' % self.mouse_id, self.con)['baseline_weight_g']
