@@ -14,10 +14,12 @@ from visual_behavior.translator.foraging2 import data_to_change_detection_core
 from visual_behavior.translator.core import create_extended_dataframe
 import pickle
 import scipy
+import labTracksQuery as ltq
 
 class mouseBehaviorData():
     
     def __init__(self, mouse_id=None, daysBeforeHandoff=28, saveDirectory=None):
+        
         self.mouse_id = mouse_id
         self.daysBeforeHandoff = daysBeforeHandoff
         self.saveDirectory=saveDirectory
@@ -151,6 +153,16 @@ class mouseBehaviorData():
             rig_name = 'unknown'
         
         return rig_name
+    
+    def get_mouse_metadata(self):
+        #get labtracks info
+        q = ltq.get_labtracks_animals_entry(self.mouse_id)
+        params_to_extract = ['Maternal_Index', 'Paternal_Index', 'wean_date', 'birth_date']
+        for p in params_to_extract:
+            self[p] = q[p]
+            
+        #get baseline weight
+        self.baseline_weight = pd.read_sql('select * from donors where external_donor_name = \'%s\'' % self.mouse_id, self.con)['baseline_weight_g']
     
     def buildBehaviorDataframe(self, startDate=None, endDate=None, all_sessions=False, overwrite_behdf=False):
         if self.behavior_sessions is None:
