@@ -39,7 +39,7 @@ class mouseBehaviorData():
                 continue
             savedict[field] = self.__dict__[field]            
         
-        with open(os.path.join(self.saveDirectory, filename), 'wb') as fp:
+        with open(os.path.join(saveDir, filename), 'wb') as fp:
             pickle.dump(savedict, fp, protocol=pickle.HIGHEST_PROTOCOL)
         
     def loadFromPickle(self, filepath):
@@ -116,7 +116,20 @@ class mouseBehaviorData():
         else:
             print('Found non-behavior pickle file: ' + pklpath)
             trials = pd.DataFrame.from_dict({'stage':[None]})
+            
         return trials
+    
+    def getRunning(self, pklpath):
+        p = pd.read_pickle(pklpath)
+        if 'behavior' in p['items']:
+            core_data = data_to_change_detection_core(p)
+            rtime = core_data['running']['time']
+            rspeed = core_data['running']['speed']
+        else:
+            rtime = np.zeros(5).astype(float)
+            rspeed = np.zeros(5).astype(float)
+        
+        return [rtime, rspeed]
     
     def calculate_dprime_engaged(self, trials, reward_rate_thresh = 1):
         
@@ -155,14 +168,15 @@ class mouseBehaviorData():
         return rig_name
     
     def get_mouse_metadata(self):
+        mid = str(self.mouse_id)
         #get labtracks info
-        q = ltq.get_labtracks_animals_entry(self.mouse_id)
+        q = ltq.get_labtracks_animals_entry(mid)
         params_to_extract = ['Maternal_Index', 'Paternal_Index', 'wean_date', 'birth_date']
         for p in params_to_extract:
             self.__dict__[p] = q[p]
             
         #get baseline weight
-        self.baseline_weight = pd.read_sql('select * from donors where external_donor_name = \'%s\'' % self.mouse_id, self.con)['baseline_weight_g']
+        self.baseline_weight = float(pd.read_sql('select * from donors where external_donor_name = \'%s\'' % mid, self.con)['baseline_weight_g'])
     
     def buildBehaviorDataframe(self, startDate=None, endDate=None, all_sessions=False, overwrite_behdf=False):
         if self.behavior_sessions is None:
@@ -200,9 +214,10 @@ class mouseBehaviorData():
         
         toAnalyze['stage'] = toAnalyze.apply(lambda row: row['trials']['stage'][0], axis=1) #add the training stage to the dataframe
         toAnalyze = toAnalyze.loc[toAnalyze['stage'].notnull()] #filter out the passive pickle files that get added during recordings
-        toAnalyze['session_datetime'] = toAnalyze.apply(lambda row: row['trials']['startdatetime'][0], axis=1)
+        toAnalyze['running'] = toAnalyze.apply(lambda row: self.getRunning(row['pklfile']), axis=1)
         
-        #Add some useful columns to dataframe
+        #Add some useful columns to dataframe: These don't require the pickle and maybe should be moved to separate function
+        toAnalyze['session_datetime'] = toAnalyze.apply(lambda row: row['trials']['startdatetime'][0], axis=1)
         toAnalyze['session_datetime_local'] = toAnalyze.apply(lambda row: pd.to_datetime(row['trials']['startdatetime'][0]), axis=1)
         toAnalyze['session_datetime_utc'] = toAnalyze.apply(lambda row: pd.to_datetime(row['trials']['startdatetime'][0], utc=True), axis=1)
         toAnalyze = toAnalyze.sort_values('session_datetime_utc', ascending=False) #sort dataframe by date
@@ -210,6 +225,7 @@ class mouseBehaviorData():
         toAnalyze['timeFromLastSession'] = toAnalyze['session_datetime_utc'].diff(periods=-1).astype('timedelta64[s]')/3600
         toAnalyze['engaged_dprime'] = toAnalyze.apply(lambda row: self.calculate_dprime_engaged(row['trials']), axis=1) 
         toAnalyze['session_day_of_week'] = toAnalyze.apply(lambda row: row['session_datetime_local'].dayofweek, axis=1)
+        
         
         #fill in rig names missing from lims
         toAnalyze['rig'] = toAnalyze.apply(lambda row: self.get_rig_name(row), axis=1)
