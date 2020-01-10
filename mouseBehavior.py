@@ -16,6 +16,7 @@ import pickle
 import scipy
 import labTracksQuery as ltq
 
+
 class mouseBehaviorData():
     
     def __init__(self, mouse_id=None, daysBeforeHandoff=28, saveDirectory=None):
@@ -283,16 +284,77 @@ class mouseBehaviorData():
         
 
     
+    def add_weight_and_water_history(self):
+        import mysql.connector
+        import re
+        import datetime
+        mysql_conn = mysql.connector.connect(host='aibspi2', database='mpe', user='read', password='read')
+        mysql_conn.autocommit = True
+        mysql_cursor = mysql_conn.cursor(dictionary=True)
+        
+        not_clients = 'client_address not like "%desktop%" ' \
+                          'and client_address not like "%ariell%"' \
+                          'and client_address not like "%ben%"' \
+                          'and client_address not like "%test%"'
+        
+        start_index=0
+
+        search_string = 'WS_ml'
+        program = 'mouse_director'
+        limit_str = 'limit {num_matches}'.format(num_matches=1000)
+        
+        sql = 'select * from log_server where rowID > {start_index} and {not_clients} and logname like "%{program}%" and message like "%{mouseID}%"\
+        and message like "%{search_string}%" order by rowID asc {limit_str}'.format(start_index=start_index,\
+                            not_clients=not_clients, program=program, mouseID=self.mouse_id, search_string=search_string, limit_str=limit_str)
+        
+        
+        mysql_cursor.execute( sql )
+        sessions = mysql_cursor.fetchall()
+        
+        
+        datadict = {'Wt_g': [],
+                    'WE_ml': [],
+                    'WS_ml': [],
+                    'weight_datetime': []}
+        
+        for key in datadict:
+            self.beh_df[key] = ""
+            
+        if len(sessions)==0:
+            print('Did not find any water entries for this mouse')
+        
+        else:
+            
+            def parse_key_value(string, key, dtype=None, limiter=','):
+                start_ind = re.split(key+limiter, string)
+                value = re.split(limiter, start_ind[1])
+                if dtype is not None:
+                    return dtype(value[0])
+                else:
+                    return value[0]
+            
+            
+            
+            for sess in sessions:
+#                datadict['datetime'].append(sess['datetime'])
+#                message = sess['message']
+#                for key in ['Wt_g', 'WE_ml', 'WS_ml']:
+#                    datadict[key].append(parse_key_value(message, key))   
+                message = sess['message']    
+                weight_datetime = sess['datetime']
+                for ind, session_date in enumerate(self.beh_df['session_datetime_local']):
+                    if datetime.datetime.date(session_date) == datetime.datetime.date(weight_datetime):
+                        for key in ['Wt_g', 'WE_ml', 'WS_ml']:
+                            self.beh_df[key].iloc[ind] = parse_key_value(message, key)
+                        self.beh_df['weight_datetime'].iloc[ind] = weight_datetime
+        return datadict
+   
+        
+        
+    
 
 
-
-
-
-
-
-
-
-
+        
 
 
 
