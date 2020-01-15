@@ -50,6 +50,16 @@ class mouseBehaviorData():
         for field in loaddict:
             self.__dict__[field] = loaddict[field]
     
+    def save_dataframe_separately(self, saveDir=None, fileBase=None):
+        if saveDir is None:
+            saveDir = self.saveDirectory
+        if fileBase is None:
+            fileBase = str(self.mouse_id) + '_dataframe'
+        
+        filename = fileBase + '_behaviorHistory.pkl'
+        self.beh_df.to_pickle(os.path.join(saveDir, filename))
+        
+    
     def queryLims(self):
         
         self.con = connect(
@@ -149,6 +159,33 @@ class mouseBehaviorData():
         
         return z[0] - z[1]
     
+    def calculate_response_rate_engaged(self, trials, responseType='HIT', reward_rate_thresh = 1):
+        engagedTrials = trials['reward_rate'] >= reward_rate_thresh
+        engagedDF = trials.loc[engagedTrials]
+        
+        responses = np.sum(engagedDF['response_type'] == responseType)
+        
+        hits = np.sum(engagedDF['response_type'] == 'HIT')
+        misses = np.sum(engagedDF['response_type'] == 'MISS')
+        fas = np.sum(engagedDF['response_type'] == 'FA')
+        crs = np.sum(engagedDF['response_type'] == 'CR')
+        
+        if responseType=='HIT' or responseType=='MISS':
+            denom = hits + misses
+        elif responseType=='FA' or responseType=='CR':
+            denom = fas + crs
+        else:
+            denom = len(engagedDF)
+        
+        return responses/float(denom)
+    
+    def calculate_total_earned_rewards(self, trials):
+        total_rewards = trials['cumulative_reward_number'].max()
+        free_rewards = trials[trials['response_type']!='EARLY_RESPONSE']['auto_rewarded'].sum()
+        
+        return total_rewards - free_rewards
+        
+    
     def get_rig_name(self, row):
         rig_name = None
         
@@ -214,7 +251,7 @@ class mouseBehaviorData():
             toAnalyze = self.beh_df
         
         toAnalyze['stage'] = toAnalyze.apply(lambda row: row['trials']['stage'][0], axis=1) #add the training stage to the dataframe
-        toAnalyze = toAnalyze.loc[toAnalyze['stage'].notnull()] #filter out the passive pickle files that get added during recordings
+        toAnalyze = toAnalyze.loc[toAnalyze['stage'].notnull()] #filtem.beh_df.apply(lambda row: (row['session_datetime_local'].tz_localize(None) - m.birth_date).days, axis=1)r out the passive pickle files that get added during recordings
         toAnalyze['running'] = toAnalyze.apply(lambda row: self.getRunning(row['pklfile']), axis=1)
         
         #Add some useful columns to dataframe: These don't require the pickle and maybe should be moved to separate function
@@ -222,67 +259,35 @@ class mouseBehaviorData():
         toAnalyze['session_datetime_local'] = toAnalyze.apply(lambda row: pd.to_datetime(row['trials']['startdatetime'][0]), axis=1)
         toAnalyze['session_datetime_utc'] = toAnalyze.apply(lambda row: pd.to_datetime(row['trials']['startdatetime'][0], utc=True), axis=1)
         toAnalyze = toAnalyze.sort_values('session_datetime_utc', ascending=False) #sort dataframe by date
-        toAnalyze['cumulative_rewards'] = toAnalyze.apply(lambda row: row['trials']['cumulative_reward_number'].max() - row['trials']['auto_rewarded'].sum(), axis=1)
         toAnalyze['timeFromLastSession'] = toAnalyze['session_datetime_utc'].diff(periods=-1).astype('timedelta64[s]')/3600
-        toAnalyze['engaged_dprime'] = toAnalyze.apply(lambda row: self.calculate_dprime_engaged(row['trials']), axis=1) 
         toAnalyze['session_day_of_week'] = toAnalyze.apply(lambda row: row['session_datetime_local'].dayofweek, axis=1)
-        
         
         #fill in rig names missing from lims
         toAnalyze['rig'] = toAnalyze.apply(lambda row: self.get_rig_name(row), axis=1)
         
         self.beh_df = toAnalyze
-    
-    def plotResponseTypeProportions(self):
-        #plot proportion of trials that were aborts, hits and false alarms
-        for ir, row in self.beh_df.iterrows():
-            fig, ax = plt.subplots()
-            fig.suptitle(row['session_datetime_local'])
-            [ax.plot(np.convolve(np.ones(50), row['trials']['response_type']==r, 'same')/50) for r in ['EARLY_RESPONSE', 'HIT', 'FA', 'MISS', 'CR']]
-            ax.set_xlabel('trial num')
-            ax.set_ylabel('proportion trials')
-            ax.legend(['EARLY_RESPONSE', 'HIT', 'FA', 'MISS', 'CR'])
+        self.calculate_behavior_metrics()
+        self.add_metadata_to_dataframe()
+        self.add_weight_and_water_history()
+        
+    def calculate_behavior_metrics(self):
+        #Add behavior metrics without reconstituting from original pickle files (ie calling buildBehaviorDataframe)
+        self.beh_df['hit_rate_engaged'] = self.beh_df.apply(lambda row: self.calculate_response_rate_engaged(row['trials'], responseType='HIT'), axis=1) 
+        self.beh_df['FA_rate_engaged'] = self.beh_df.apply(lambda row: self.calculate_response_rate_engaged(row['trials'], responseType='FA'), axis=1) 
+        self.beh_df['abort_rate_engaged'] = self.beh_df.apply(lambda row: self.calculate_response_rate_engaged(row['trials'], responseType='EARLY_RESPONSE'), axis=1) 
+        self.beh_df['engaged_dprime'] = self.beh_df.apply(lambda row: self.calculate_dprime_engaged(row['trials']), axis=1) 
+        self.beh_df['earned_rewards'] = self.beh_df.apply(lambda row: self.calculate_total_earned_rewards(row['trials']), axis=1)
+        self.beh_df['total_rewards'] = self.beh_df.apply(lambda row: row['trials']['cumulative_reward_number'].max(), axis=1)
+        
+    def add_metadata_to_dataframe(self):
+        if not hasattr(self, 'Maternal_Index'):
+            self.get_mouse_metadata()
             
-                
-    def plotSessionHistory(self):
+        self.beh_df['Maternal_Index'] = int(self.Maternal_Index)
+        self.beh_df['Paternal_Index'] = int(self.Paternal_Index)
+        self.beh_df['age'] = self.beh_df.apply(lambda row: (row['session_datetime_local'].tz_localize(None) - self.birth_date).days, axis=1)
+        self.beh_df['baseline_weight'] = self.baseline_weight
     
-        def getColorAlphaFill(row):
-            a = 1.0
-            f = 'full'
-            if 'NP' not in row['rig']:
-                c = 'k'
-            elif 'TRAINING' in row['stage']:
-                c = 'm'
-            else:
-                c = 'g'
-            
-            if 'low_volume' in row['stage']:
-                a = 0.3
-                f = 'none'
-            return c,a,f
-        
-        fig, ax = plt.subplots()
-        for ir, row in self.beh_df.iterrows():  
-            num_rewards = row['trials']['cumulative_reward_number'].max()
-            c,a,f = getColorAlphaFill(row)
-            ax.plot(row['session_datetime_local'], num_rewards, c+'o', alpha=a, fillstyle=f, mew=3)
-        fig.suptitle(self.mouse_id)
-        ax.set_xlabel('Sessions')
-        ax.set_ylabel('num rewards')
-        ax.set_xticks([row['session_datetime_local'] for _,row in self.beh_df.iterrows()])
-        ax.set_xticklabels([row['session_datetime_local'].date() for _,row in self.beh_df.iterrows()])
-        plt.xticks(rotation=90)
-        
-        
-    def plotPerformanceByTimeFromLastSession(self):
-        
-        fig, ax = plt.subplots()
-        ax.plot(self.beh_df['timeFromLastSession'], self.beh_df['cumulative_rewards'], 'o')
-#        ax.set_xlim([18,28])
-        ax.set_xlabel('Hours since last session')
-        ax.set_ylabel('Number of rewards earned')
-        
-
     
     def add_weight_and_water_history(self):
         import mysql.connector
@@ -345,13 +350,61 @@ class mouseBehaviorData():
                 for ind, session_date in enumerate(self.beh_df['session_datetime_local']):
                     if datetime.datetime.date(session_date) == datetime.datetime.date(weight_datetime):
                         for key in ['Wt_g', 'WE_ml', 'WS_ml']:
-                            self.beh_df[key].iloc[ind] = parse_key_value(message, key)
+                            self.beh_df[key].iloc[ind] = parse_key_value(message, ' ' + key)
                         self.beh_df['weight_datetime'].iloc[ind] = weight_datetime
-        return datadict
+        
    
         
         
+    def plotResponseTypeProportions(self):
+        #plot proportion of trials that were aborts, hits and false alarms
+        for ir, row in self.beh_df.iterrows():
+            fig, ax = plt.subplots()
+            fig.suptitle(row['session_datetime_local'])
+            [ax.plot(np.convolve(np.ones(50), row['trials']['response_type']==r, 'same')/50) for r in ['EARLY_RESPONSE', 'HIT', 'FA', 'MISS', 'CR']]
+            ax.set_xlabel('trial num')
+            ax.set_ylabel('proportion trials')
+            ax.legend(['EARLY_RESPONSE', 'HIT', 'FA', 'MISS', 'CR'])
+            
+                
+    def plotSessionHistory(self):
     
+        def getColorAlphaFill(row):
+            a = 1.0
+            f = 'full'
+            if 'NP' not in row['rig']:
+                c = 'k'
+            elif 'TRAINING' in row['stage']:
+                c = 'm'
+            else:
+                c = 'g'
+            
+            if 'low_volume' in row['stage']:
+                a = 0.3
+                f = 'none'
+            return c,a,f
+        
+        fig, ax = plt.subplots()
+        for ir, row in self.beh_df.iterrows():  
+            num_rewards = row['trials']['cumulative_reward_number'].max()
+            c,a,f = getColorAlphaFill(row)
+            ax.plot(row['session_datetime_local'], num_rewards, c+'o', alpha=a, fillstyle=f, mew=3)
+        fig.suptitle(self.mouse_id)
+        ax.set_xlabel('Sessions')
+        ax.set_ylabel('num rewards')
+        ax.set_xticks([row['session_datetime_local'] for _,row in self.beh_df.iterrows()])
+        ax.set_xticklabels([row['session_datetime_local'].date() for _,row in self.beh_df.iterrows()])
+        plt.xticks(rotation=90)
+        
+        
+    def plotPerformanceByTimeFromLastSession(self):
+        
+        fig, ax = plt.subplots()
+        ax.plot(self.beh_df['timeFromLastSession'], self.beh_df['cumulative_rewards'], 'o')
+#        ax.set_xlim([18,28])
+        ax.set_xlabel('Hours since last session')
+        ax.set_ylabel('Number of rewards earned')
+           
 
 
         
