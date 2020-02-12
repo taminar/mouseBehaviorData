@@ -142,22 +142,45 @@ class mouseBehaviorData():
         
         return [rtime, rspeed]
     
-    def calculate_dprime_engaged(self, trials, reward_rate_thresh = 1):
+    def calculate_dprime_engaged(trials, reward_rate_thresh = 1):
         
-        engagedTrials = trials['reward_rate'] >= reward_rate_thresh
+        engagedTrials = (trials['reward_rate'] >= 1) & (trials['response_type'] != 'aborted')
         engagedDF = trials.loc[engagedTrials]
-        
         hits = np.sum(engagedDF['response_type'] == 'HIT')
         misses = np.sum(engagedDF['response_type'] == 'MISS')
         fas = np.sum(engagedDF['response_type'] == 'FA')
         crs = np.sum(engagedDF['response_type'] == 'CR')
-        
-        engagedTrialHitRate = hits/float(hits+misses)
-        engagedTrialFARate = fas/float(fas+crs)
-        
-        z = [scipy.stats.norm.ppf(r) for r in (engagedTrialHitRate,engagedTrialFARate)]
-        
+        def trial_number_limit(p, N):
+            if N == 0:
+                return np.nan
+            if not pd.isnull(p):
+                p = np.max((p, 1. / (2 * N)))
+                p = np.min((p, 1 - 1. / (2 * N)))
+            return p
+    
+        hitRate = trial_number_limit(hits/float(hits + misses), hits + misses)
+        faRate = trial_number_limit(fas/float(fas+crs), fas+crs)
+    
+        z = [scipy.stats.norm.ppf(r) for r in (hitRate,faRate)]
+    
         return z[0] - z[1]
+    
+#    def calculate_dprime_engaged(self, trials, reward_rate_thresh = 1):
+#        
+#        engagedTrials = trials['reward_rate'] >= reward_rate_thresh
+#        engagedDF = trials.loc[engagedTrials]
+#        
+#        hits = np.sum(engagedDF['response_type'] == 'HIT')
+#        misses = np.sum(engagedDF['response_type'] == 'MISS')
+#        fas = np.sum(engagedDF['response_type'] == 'FA')
+#        crs = np.sum(engagedDF['response_type'] == 'CR')
+#        
+#        engagedTrialHitRate = hits/float(hits+misses)
+#        engagedTrialFARate = fas/float(fas+crs)
+#        
+#        z = [scipy.stats.norm.ppf(r) for r in (engagedTrialHitRate,engagedTrialFARate)]
+#        
+#        return z[0] - z[1]
     
     def calculate_response_rate_engaged(self, trials, responseType='HIT', reward_rate_thresh = 1):
         engagedTrials = trials['reward_rate'] >= reward_rate_thresh
@@ -350,11 +373,21 @@ class mouseBehaviorData():
                 for ind, session_date in enumerate(self.beh_df['session_datetime_local']):
                     if datetime.datetime.date(session_date) == datetime.datetime.date(weight_datetime):
                         for key in ['Wt_g', 'WE_ml', 'WS_ml']:
-                            self.beh_df[key].iloc[ind] = parse_key_value(message, ' ' + key)
+                            val = parse_key_value(message, ' ' + key)
+                            self.beh_df[key].iloc[ind] = float(val) if val != '' else np.nan
                         self.beh_df['weight_datetime'].iloc[ind] = weight_datetime
         
-   
+            
         
+    def standardizeDatatypes(self):
+        
+        self.beh_df['ophys_session_id'] = pd.to_numeric(self.beh_df['ophys_session_id'])
+        
+        #replace blanks with nans
+        for col in ['Wt_g', 'WE_ml', 'WS_ml']:
+            self.beh_df[col].replace(r'', np.nan, inplace=True)
+            self.beh_df[col] = self.beh_df[col].astype('float')
+    
         
     def plotResponseTypeProportions(self):
         #plot proportion of trials that were aborts, hits and false alarms
