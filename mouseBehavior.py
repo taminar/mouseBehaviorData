@@ -117,6 +117,7 @@ class mouseBehaviorData():
         
     def getTrialsDF(self, pklpath):
         p = pd.read_pickle(pklpath)
+        #print(pklpath)
         if 'behavior' in p['items']:
             core_data = data_to_change_detection_core(p)
             trials = create_extended_dataframe(
@@ -125,7 +126,7 @@ class mouseBehaviorData():
                     licks=core_data['licks'],
                     time=core_data['time'])
         else:
-            print('Found non-behavior pickle file: ' + pklpath)
+            #print('Found non-behavior pickle file: ' + pklpath)
             trials = pd.DataFrame.from_dict({'stage':[None]})
             
         return trials
@@ -142,7 +143,7 @@ class mouseBehaviorData():
         
         return [rtime, rspeed]
     
-    def calculate_dprime_engaged(trials, reward_rate_thresh = 1):
+    def calculate_dprime_engaged(self, trials, reward_rate_thresh = 1):
         
         engagedTrials = (trials['reward_rate'] >= 1) & (trials['response_type'] != 'aborted')
         engagedDF = trials.loc[engagedTrials]
@@ -238,6 +239,16 @@ class mouseBehaviorData():
             
         #get baseline weight
         self.baseline_weight = float(pd.read_sql('select * from donors where external_donor_name = \'%s\'' % mid, self.con)['baseline_weight_g'])
+        
+    def get_reward_volume(self, trials):
+        
+        hit_trials = (trials['response_type'] == 'HIT') & (trials['auto_rewarded'] == False)
+        
+        if np.sum(hit_trials)>0:
+            reward_volume = trials.loc[hit_trials]['reward_volume'].max()
+        else:
+            reward_volume = trials['reward_volume'].max()
+        return reward_volume
     
     def buildBehaviorDataframe(self, startDate=None, endDate=None, all_sessions=False, overwrite_behdf=False):
         if self.behavior_sessions is None:
@@ -301,6 +312,7 @@ class mouseBehaviorData():
         self.beh_df['engaged_dprime'] = self.beh_df.apply(lambda row: self.calculate_dprime_engaged(row['trials']), axis=1) 
         self.beh_df['earned_rewards'] = self.beh_df.apply(lambda row: self.calculate_total_earned_rewards(row['trials']), axis=1)
         self.beh_df['total_rewards'] = self.beh_df.apply(lambda row: row['trials']['cumulative_reward_number'].max(), axis=1)
+        self.beh_df['reward_volume'] = self.beh_df.apply(lambda row: self.get_reward_volume(row['trials']), axis=1)
         
     def add_metadata_to_dataframe(self):
         if not hasattr(self, 'Maternal_Index'):
