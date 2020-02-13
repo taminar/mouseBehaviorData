@@ -117,6 +117,7 @@ class mouseBehaviorData():
         
     def getTrialsDF(self, pklpath):
         p = pd.read_pickle(pklpath)
+        print(pklpath)
         if 'behavior' in p['items']:
             core_data = data_to_change_detection_core(p)
             trials = create_extended_dataframe(
@@ -142,7 +143,7 @@ class mouseBehaviorData():
         
         return [rtime, rspeed]
     
-    def calculate_dprime_engaged(trials, reward_rate_thresh = 1):
+    def calculate_dprime_engaged(self, trials, reward_rate_thresh = 1):
         
         engagedTrials = (trials['reward_rate'] >= 1) & (trials['response_type'] != 'aborted')
         engagedDF = trials.loc[engagedTrials]
