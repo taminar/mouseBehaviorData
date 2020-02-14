@@ -15,6 +15,7 @@ from visual_behavior.translator.core import create_extended_dataframe
 import pickle
 import scipy
 import labTracksQuery as ltq
+import sys
 
 
 class mouseBehaviorData():
@@ -118,15 +119,20 @@ class mouseBehaviorData():
     def getTrialsDF(self, pklpath):
         p = pd.read_pickle(pklpath)
         #print(pklpath)
+
         if 'behavior' in p['items']:
-            core_data = data_to_change_detection_core(p)
-            trials = create_extended_dataframe(
-                    trials=core_data['trials'],
-                    metadata=core_data['metadata'],
-                    licks=core_data['licks'],
-                    time=core_data['time'])
+            try:
+                core_data = data_to_change_detection_core(p)
+                trials = create_extended_dataframe(
+                        trials=core_data['trials'],
+                        metadata=core_data['metadata'],
+                        licks=core_data['licks'],
+                        time=core_data['time'])
+            except Exception as e:
+                print('Error loading ' + pklpath, e)
+                trials = pd.DataFrame.from_dict({'stage':[None]})
         else:
-            #print('Found non-behavior pickle file: ' + pklpath)
+            print('Found non-behavior pickle file: ' + pklpath)
             trials = pd.DataFrame.from_dict({'stage':[None]})
             
         return trials
