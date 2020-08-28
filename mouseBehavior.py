@@ -128,6 +128,8 @@ class mouseBehaviorData():
                         metadata=core_data['metadata'],
                         licks=core_data['licks'],
                         time=core_data['time'])
+                print('Loaded data from {}'.format(os.path.basename(pklpath)))
+            
             except Exception as e:
                 print('Error loading ' + pklpath, e)
                 trials = pd.DataFrame.from_dict({'stage':[None]})
@@ -417,37 +419,7 @@ class mouseBehaviorData():
             ax.set_ylabel('proportion trials')
             ax.legend(['EARLY_RESPONSE', 'HIT', 'FA', 'MISS', 'CR'])
             
-                
-    def plotSessionHistory(self):
-    
-        def getColorAlphaFill(row):
-            a = 1.0
-            f = 'full'
-            if 'NP' not in row['rig']:
-                c = 'k'
-            elif 'TRAINING' in row['stage']:
-                c = 'm'
-            else:
-                c = 'g'
-            
-            if 'low_volume' in row['stage']:
-                a = 0.3
-                f = 'none'
-            return c,a,f
-        
-        fig, ax = plt.subplots()
-        for ir, row in self.beh_df.iterrows():  
-            num_rewards = row['trials']['cumulative_reward_number'].max()
-            c,a,f = getColorAlphaFill(row)
-            ax.plot(row['session_datetime_local'], num_rewards, c+'o', alpha=a, fillstyle=f, mew=3)
-        fig.suptitle(self.mouse_id)
-        ax.set_xlabel('Sessions')
-        ax.set_ylabel('num rewards')
-        ax.set_xticks([row['session_datetime_local'] for _,row in self.beh_df.iterrows()])
-        ax.set_xticklabels([row['session_datetime_local'].date() for _,row in self.beh_df.iterrows()])
-        plt.xticks(rotation=90)
-        
-        
+ 
     def plotPerformanceByTimeFromLastSession(self):
         
         fig, ax = plt.subplots()
