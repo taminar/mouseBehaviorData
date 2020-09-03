@@ -20,12 +20,27 @@ def checkforMouseBehaviorObject(directory, mouseID):
 	return pklpath
 
 
+def filter_sessions_by_stage(beh_df, filter_string='HAB'):
+
+	filtered = beh_df['stage'].str.contains(filter_string)
+
+	return beh_df.loc[filtered]
+
+
+def filter_sessions_by_rig(beh_df, rig='NP'):
+
+	filtered = beh_df['rig'].str.contains(rig)
+
+	return beh_df.loc[filtered]
+
+
 def plot_weight_over_time(beh_df):
 
 	fig, ax = plt.subplots()
 	ax.plot(beh_df['session_datetime_local'], beh_df['Wt_g'], 'k-o')
 	ax.set_title('Wt_g')
 	ax.tick_params(axis='x', labelrotation=45)
+
 
 def plot_water_allotment(beh_df):
 
