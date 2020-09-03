@@ -258,7 +258,7 @@ class mouseBehaviorData():
             reward_volume = trials['reward_volume'].max()
         return reward_volume
     
-    def buildBehaviorDataframe(self, startDate=None, endDate=None, all_sessions=False, overwrite_behdf=False):
+    def buildBehaviorDataframe(self, startDate=None, endDate=None, all_sessions=False, overwrite_behdf=False, update=False):
         if self.behavior_sessions is None:
             self.getBehaviorSessionsForMouse()
         
@@ -289,6 +289,21 @@ class mouseBehaviorData():
             toAnalyze = self.behavior_sessions[(self.behavior_sessions['created_at']>=startDate)&(self.behavior_sessions['created_at']<endDate)]
             toAnalyze['trials'] = toAnalyze.apply(lambda row: self.getTrialsDF(row['pklfile']), axis=1) #this trials object has all the info you need about the session
         
+        elif update:
+            print('updating dataframe with new behavior sessions')
+            old_sessions = self.behavior_sessions
+            self.getBehaviorSessionsForMouse()
+            new_sessions = self.behavior_sessions
+
+            new_ids = [limsid for limsid in new_sessions['id'].tolist() if limsid not in old_sessions['id'].tolist()]
+            if len(new_ids)>0:
+                print('Found {} new sessions'.format(len(new_ids)))
+                new_rows = new_sessions[new_sessions['id'].isin(new_ids)]
+                toAnalyze = new_rows
+                toAnalyze['pklfile'] = toAnalyze.apply(lambda row: self.getPicklePath(row['storage_directory']), axis=1)
+                toAnalyze['trials'] = toAnalyze.apply(lambda row: self.getTrialsDF(row['pklfile']), axis=1)
+            else:
+                return
         else:
             toAnalyze = self.beh_df
         
@@ -300,17 +315,26 @@ class mouseBehaviorData():
         toAnalyze['session_datetime'] = toAnalyze.apply(lambda row: row['trials']['startdatetime'][0], axis=1)
         toAnalyze['session_datetime_local'] = toAnalyze.apply(lambda row: pd.to_datetime(row['trials']['startdatetime'][0]), axis=1)
         toAnalyze['session_datetime_utc'] = toAnalyze.apply(lambda row: pd.to_datetime(row['trials']['startdatetime'][0], utc=True), axis=1)
-        toAnalyze = toAnalyze.sort_values('session_datetime_utc', ascending=False) #sort dataframe by date
+        #toAnalyze = toAnalyze.sort_values('session_datetime_utc', ascending=False) #sort dataframe by date
         toAnalyze['timeFromLastSession'] = toAnalyze['session_datetime_utc'].diff(periods=-1).astype('timedelta64[s]')/3600
         toAnalyze['session_day_of_week'] = toAnalyze.apply(lambda row: row['session_datetime_local'].dayofweek, axis=1)
         
         #fill in rig names missing from lims
         toAnalyze['rig'] = toAnalyze.apply(lambda row: self.get_rig_name(row), axis=1)
         
-        self.beh_df = toAnalyze
+        if update:
+            print('merging new data into dataframe')
+            if len(new_ids)==1:
+                self.beh_df = self.beh_df.append(toAnalyze)
+            else:    
+                self.beh_df = pd.concat([toAnalyze, self.beh_df])
+        else:
+            self.beh_df = toAnalyze
+        
         self.calculate_behavior_metrics()
         self.add_metadata_to_dataframe()
         self.add_weight_and_water_history()
+        self.beh_df = self.beh_df.sort_values('session_datetime_utc', ascending=False)
         
     def calculate_behavior_metrics(self):
         #Add behavior metrics without reconstituting from original pickle files (ie calling buildBehaviorDataframe)
