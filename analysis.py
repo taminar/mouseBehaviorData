@@ -22,9 +22,22 @@ def checkforMouseBehaviorObject(directory, mouseID):
 
 def filter_sessions_by_stage(beh_df, filter_string='HAB'):
 
-	filtered = beh_df['stage'].str.contains(filter_string)
+	if isinstance(filter_string, list):
+		filtered_df = beh_df.copy(deep=True)
+		for fs in filter_string:
+			filtered_df = filter_sessions_by_stage(filtered_df, fs)
+	else:
+		filtered = beh_df['stage'].str.contains(filter_string)
+		filtered_df = beh_df.loc[filtered]
+	
+	return filtered_df
 
-	return beh_df.loc[filtered]
+
+def filter_out_pretest(beh_df):
+
+	filtered = beh_df['stage'].str.contains('pretest')
+
+	return beh_df.loc[~filtered]
 
 
 def filter_sessions_by_rig(beh_df, rig='NP'):
@@ -57,7 +70,7 @@ def plot_inferred_presession_weight(beh_df, water_loss_during_session=0.3):
 	post_wt = beh_df['Wt_g'].astype(float)
 	earned_wt = beh_df['WE_ml'].astype(float)
 	inferred_wt = post_wt - earned_wt + water_loss_during_session
-
+	
 	fig, ax = plt.subplots()
 	ax.plot(beh_df['session_datetime_local'], inferred_wt, 'g-o')
 	ax.set_title('Wt_g - WE_ml + {}: inferred pre-session weight'.format(water_loss_during_session))
@@ -73,16 +86,17 @@ def plotSessionHistory(beh_df):
                 c = 'k'
             elif 'HAB' in row['stage']:
                 c = 'm'
-            else:
+            elif 'EPHYS' in row['stage']:
                 c = 'g'
             
-            if 'low_volume' in row['stage']:
+            if '3uL' in row['stage']:
                 a = 0.3
-                f = 'none'
+            
             return c,a,f
 
-        
+        #mouseID = str(mouseID)
         fig, ax = plt.subplots()
+        fig.set_size_inches([12, 6])
         artists_for_legend = []
         labels_for_legend = []
         colors_used = []
@@ -95,6 +109,7 @@ def plotSessionHistory(beh_df):
         ax.set_ylabel('num rewards')
         ax.set_xticks([row['session_datetime_local'] for _,row in beh_df.iterrows()][::2])
         ax.set_xticklabels([row['session_datetime_local'].date() for _,row in beh_df.iterrows()], rotation=90)
+        #title = mouseID + 'Rewards per Session'
         plt.tight_layout()
         
         k_patch = mpatches.Patch(color='k', label='NSB')
@@ -102,3 +117,21 @@ def plotSessionHistory(beh_df):
         g_patch = mpatches.Patch(color='g', label='EPHYS')
 
         ax.legend(handles=[k_patch, m_patch, g_patch])
+
+
+def findSaturationTime(trialdf):
+    startTrial = np.where(trialdf['cumulative_volume']>0)[0]
+    saturationTrial = np.where(trialdf['cumulative_volume'] > 0.90*trialdf['cumulative_volume'].max())[0]
+    if len(saturationTrial)==0:
+        saturationTrial = 0
+        startTrial = 0
+    else:
+        saturationTrial = saturationTrial[0]
+        startTrial = startTrial[0]
+    return np.array(trialdf['endtime'])[saturationTrial] - np.array(trialdf['endtime'])[startTrial]
+
+def findAbortFraction(trialdf):
+	trial_types = trialdf['trial_type']
+	fraction_aborted = (np.sum(trial_types=='aborted'))/float(len(trial_types))
+
+	return fraction_aborted
