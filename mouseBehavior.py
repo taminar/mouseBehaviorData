@@ -291,11 +291,13 @@ class mouseBehaviorData():
         
         elif update:
             print('updating dataframe with new behavior sessions')
-            old_sessions = self.behavior_sessions
+            #old_sessions = self.behavior_sessions
+            old_session_ids = self.beh_df['id'].to_list()
             self.getBehaviorSessionsForMouse()
             new_sessions = self.behavior_sessions
 
-            new_ids = [limsid for limsid in new_sessions['id'].tolist() if limsid not in old_sessions['id'].tolist()]
+            #new_ids = [limsid for limsid in new_sessions['id'].tolist() if limsid not in old_sessions['id'].tolist()]
+            new_ids = [limsid for limsid in new_sessions['id'].tolist() if limsid not in old_session_ids]
             if len(new_ids)>0:
                 print('Found {} new sessions'.format(len(new_ids)))
                 new_rows = new_sessions[new_sessions['id'].isin(new_ids)]
