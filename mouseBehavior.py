@@ -222,19 +222,31 @@ class mouseBehaviorData():
         rig_name = None
         
         #check if we can get rig from trials df
+        found_rig = False
         if 'trials' in row:
-            if 'rig_id' in row['trials']:
+            if 'rig_id' in row['trials'] and not row['trials']['rig_id'][0] == 'unknown':
                 rig_name = row['trials']['rig_id'][0]
+                found_rig=True
         
         #otherwise get it from LIMs equip id
-        else:
+        if not found_rig:
             equipID = row['equipment_id']
             if not equipID is None and not np.isnan(equipID):
                 rig_name = pd.read_sql('select * from equipment where id = {}'.format(row['equipment_id']), self.con)['name']
-        
+                rig_name = rig_name.values[0]
         if rig_name is None:
             rig_name = 'unknown'
         
+        rig_translator_dict = {
+                                'NP.0': 'NP0',
+                                'NP.1': 'NP1',
+                                'NP.2': 'NP2',
+                                'NP.3': 'NP3'
+                                }
+
+        if rig_name in rig_translator_dict:
+            rig_name = rig_translator_dict[rig_name]
+
         return rig_name
     
     def get_mouse_metadata(self):
